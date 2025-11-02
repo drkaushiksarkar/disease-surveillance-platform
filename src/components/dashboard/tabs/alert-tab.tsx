@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import NationalCasesBaselineChart from '@/components/dashboard/NationalCasesBaselineChart';
-import { getAlertStats, getWeeklyNationalDataFromAPI, getDistrictAlertData, getAlertStatsFromAPI, getDistrictAlertDataFromAPI, diseases } from '@/lib/data';
+import { diseases } from '@/lib/data';
 import { BaselineMethod, WeeklyNationalData, AlertStats } from '@/lib/types';
 import { Info, Loader2, Mail, Send } from 'lucide-react';
 import InfoButton from '@/components/dashboard/InfoButton';
@@ -33,13 +33,22 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const TARGET_YEAR = 2024;
+// Removed hardcoded TARGET_YEAR - now dynamically fetched from API
 
 export default function AlertTab() {
   const [selectedDisease, setSelectedDisease] = useState<string>('dengue');
   const [baselineMethod, setBaselineMethod] = useState<BaselineMethod>('p95');
   const [weeklyData, setWeeklyData] = useState<WeeklyNationalData[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper to determine if disease uses monthly or weekly data
+  const isMonthlyDisease = (disease: string) => {
+    return disease === 'malaria_pf' || disease === 'malaria_pv';
+  };
+
+  const getPeriodLabel = (disease: string) => {
+    return isMonthlyDisease(disease) ? 'Month' : 'Week';
+  };
   const [receiverEmail, setReceiverEmail] = useState<string>('');
   const [emailBody, setEmailBody] = useState<string>('');
   const [isSending, setIsSending] = useState(false);
@@ -51,30 +60,86 @@ export default function AlertTab() {
     districtsOnAlert: 0,
     totalDistricts: 64,
     nationalRiskLevel: 'Low',
+    latestDataDate: '',
   });
 
-  // Fetch alert stats (async for malaria, sync for others)
+  // Fetch alert stats from new API
   useEffect(() => {
     async function loadAlertStats() {
-      if (selectedDisease === 'malaria') {
-        const stats = await getAlertStatsFromAPI(selectedDisease, baselineMethod, TARGET_YEAR);
-        setAlertStats(stats);
-      } else {
-        const stats = getAlertStats(selectedDisease, baselineMethod, TARGET_YEAR);
-        setAlertStats(stats);
+      try {
+        const response = await fetch(`/api/alerts/stats?disease=${selectedDisease}&method=${baselineMethod}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch alert stats');
+        }
+        const stats = await response.json();
+        setAlertStats({
+          currentWeekCases: stats.currentPeriodCases,
+          previousWeekCases: stats.previousPeriodCases,
+          percentChange: stats.percentChange,
+          districtsOnAlert: stats.districtsOnAlert,
+          totalDistricts: stats.totalDistricts,
+          nationalRiskLevel: stats.nationalRiskLevel,
+          latestDataDate: stats.latestDataDate,
+        });
+      } catch (error) {
+        console.error('Error loading alert stats:', error);
       }
     }
     loadAlertStats();
   }, [selectedDisease, baselineMethod]);
 
-  // Fetch weekly data from API when disease or baseline method changes
+  // Fetch national data from new API
   useEffect(() => {
     async function loadWeeklyData() {
       setLoading(true);
-      const data = await getWeeklyNationalDataFromAPI(selectedDisease, baselineMethod, TARGET_YEAR);
-      console.log('Loaded weekly data:', data.length, 'data points');
-      setWeeklyData(data);
-      setLoading(false);
+      try {
+        const response = await fetch(`/api/alerts/national-data?disease=${selectedDisease}&method=${baselineMethod}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch national data');
+        }
+        const data = await response.json();
+        console.log('Loaded national data:', data.length, 'data points');
+
+        // Transform to match WeeklyNationalData format
+        const transformedData = data.map((item: any) => {
+          let week = 1;
+          let year = 2024;
+
+          // Parse period based on format
+          if (item.period.includes('-W')) {
+            // Weekly format: "2025-W22"
+            const parts = item.period.split('-W');
+            year = parseInt(parts[0]);
+            week = parseInt(parts[1]);
+          } else if (item.period.includes('T')) {
+            // Date format for diarrhoea: "2025-05-31T..."
+            const date = new Date(item.period);
+            year = date.getFullYear();
+            const startOfYear = new Date(year, 0, 1);
+            const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
+            week = Math.ceil((dayOfYear + 1) / 7);
+          } else {
+            // Monthly format for malaria: "2024-12"
+            const parts = item.period.split('-');
+            year = parseInt(parts[0]);
+            week = parseInt(parts[1]); // month number
+          }
+
+          return {
+            week,
+            year,
+            date: item.period,
+            cases: item.cases,
+            baseline: item.baseline,
+          };
+        });
+
+        setWeeklyData(transformedData);
+      } catch (error) {
+        console.error('Error loading national data:', error);
+      } finally {
+        setLoading(false);
+      }
     }
     loadWeeklyData();
   }, [selectedDisease, baselineMethod]);
@@ -82,10 +147,13 @@ export default function AlertTab() {
   // Generate email body based on districts on alert
   useEffect(() => {
     async function generateEmailBody() {
-      const districtData = selectedDisease === 'malaria'
-        ? await getDistrictAlertDataFromAPI(selectedDisease, baselineMethod, TARGET_YEAR)
-        : getDistrictAlertData(selectedDisease, baselineMethod, TARGET_YEAR);
-      const districtsOnAlert = districtData.filter(d => d.isOnAlert);
+      try {
+        const response = await fetch(`/api/alerts/districts?disease=${selectedDisease}&method=${baselineMethod}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch district data');
+        }
+        const districtData = await response.json();
+        const districtsOnAlert = districtData.filter((d: any) => d.isOnAlert);
 
     if (districtsOnAlert.length === 0) {
       setEmailBody(`Subject: Disease Alert - No Districts Currently at Risk
@@ -99,7 +167,7 @@ Current Status: No districts are currently exceeding baseline thresholds for ${d
 Analysis Parameters:
 - Disease: ${diseases.find(d => d.id === selectedDisease)?.name || selectedDisease}
 - Baseline Method: ${baselineMethod.toUpperCase()}
-- Week: Current week of ${TARGET_YEAR}
+- Latest Data Date: ${alertStats.latestDataDate || 'N/A'}
 
 All districts are within expected disease occurrence levels. Continue routine surveillance.
 
@@ -125,7 +193,7 @@ ${districtList}
 Analysis Parameters:
 - Disease: ${diseases.find(d => d.id === selectedDisease)?.name || selectedDisease}
 - Baseline Method: ${baselineMethod.toUpperCase()}
-- Week: Current week of ${TARGET_YEAR}
+- Latest Data Date: ${alertStats.latestDataDate || 'N/A'}
 - Total Districts Monitored: ${districtData.length}
 
 Recommended Actions:
@@ -140,9 +208,12 @@ Please take immediate action to investigate and respond to this alert.
 This is an automated message from Bangladesh EWARS
 For questions, contact: bangladesh-ewars@email.com`);
       }
+      } catch (error) {
+        console.error('Error generating email body:', error);
+      }
     }
     generateEmailBody();
-  }, [selectedDisease, baselineMethod]);
+  }, [selectedDisease, baselineMethod, alertStats.latestDataDate]);
 
   const baselineMethodInfo = {
     p95: '95th percentile of historical cases for the week',
@@ -200,14 +271,20 @@ For questions, contact: bangladesh-ewars@email.com`);
 
   useEffect(() => {
     async function loadDistrictDistribution() {
-      const districtData = selectedDisease === 'malaria'
-        ? await getDistrictAlertDataFromAPI(selectedDisease, baselineMethod, TARGET_YEAR)
-        : getDistrictAlertData(selectedDisease, baselineMethod, TARGET_YEAR);
-      const distribution = districtData
-        .sort((a, b) => b.cases - a.cases)
-        .slice(0, 10)
-        .map((d) => ({ name: d.district, value: Math.round(d.cases) }));
-      setDistrictDistribution(distribution);
+      try {
+        const response = await fetch(`/api/alerts/districts?disease=${selectedDisease}&method=${baselineMethod}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch district data');
+        }
+        const districtData = await response.json();
+        const distribution = districtData
+          .sort((a: any, b: any) => b.cases - a.cases)
+          .slice(0, 10)
+          .map((d: any) => ({ name: d.district, value: Math.round(d.cases) }));
+        setDistrictDistribution(distribution);
+      } catch (error) {
+        console.error('Error loading district distribution:', error);
+      }
     }
     loadDistrictDistribution();
   }, [selectedDisease, baselineMethod]);
@@ -227,7 +304,7 @@ For questions, contact: bangladesh-ewars@email.com`);
           </div>
           <div className="flex flex-col gap-2 items-end">
             <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 rounded text-sm font-medium text-blue-900">
-              Data Year: {TARGET_YEAR}
+              Latest Data: {alertStats.latestDataDate || 'Loading...'}
             </div>
             <Button
               onClick={() => setIsDialogOpen(true)}
@@ -290,11 +367,11 @@ For questions, contact: bangladesh-ewars@email.com`);
 
       {/* Alert Statistics Cards with District Alert Dial */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Current Week Cases Card */}
+        {/* Current Period Cases Card */}
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardDescription>Current Week Cases</CardDescription>
+              <CardDescription>Current {getPeriodLabel(selectedDisease)} Cases</CardDescription>
               <div className="p-1.5 bg-blue-100 rounded-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -331,7 +408,7 @@ For questions, contact: bangladesh-ewars@email.com`);
                   </span>
                 </>
               )}
-              <span className="text-xs text-muted-foreground">vs last week</span>
+              <span className="text-xs text-muted-foreground">vs last {getPeriodLabel(selectedDisease).toLowerCase()}</span>
             </div>
             <div className="pt-1.5 border-t">
               <p className="text-xs text-muted-foreground">Previous: <span className="font-medium text-foreground">{alertStats.previousWeekCases.toLocaleString()}</span></p>
@@ -518,7 +595,8 @@ For questions, contact: bangladesh-ewars@email.com`);
         ) : (
           <NationalCasesBaselineChart
             data={weeklyData}
-            year={TARGET_YEAR}
+            year={parseInt(alertStats.latestDataDate?.split('-')[0] || '2024')}
+            disease={selectedDisease}
           />
         )}
 

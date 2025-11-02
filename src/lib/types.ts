@@ -84,6 +84,7 @@ export type AlertStats = {
   districtsOnAlert: number;
   totalDistricts: number;
   nationalRiskLevel: 'Low' | 'Medium' | 'High';
+  latestDataDate?: string;
 };
 
 export type WeeklyNationalData = {
