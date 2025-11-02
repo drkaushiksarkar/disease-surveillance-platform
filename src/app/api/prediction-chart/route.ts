@@ -96,7 +96,7 @@ export async function GET(request: Request) {
       } else if (disease === 'dengue') {
         // Dengue data comes from external JSON API, not database
         console.log(`Fetching dengue data from drilldown API for district: ${district}`);
-        const apiUrl = `http://119.148.17.102:5000/dengue/all.json`;
+        const apiUrl = `${process.env.API_BASE_URL}/dengue/all.json`;
         const response = await fetch(apiUrl, { cache: 'no-cache' });
         if (response.ok) {
           const allData = await response.json();
@@ -132,7 +132,7 @@ export async function GET(request: Request) {
         // Diarrhoea (AWD) data comes from external JSON API, not database
         // Note: AWD data has 'date' and 'daily_cases' fields (different structure from dengue)
         console.log(`Fetching diarrhoea data from drilldown API for district: ${district}`);
-        const apiUrl = `http://119.148.17.102:5000/awd/all.json`;
+        const apiUrl = `${process.env.API_BASE_URL}/awd/all.json`;
         const response = await fetch(apiUrl, { cache: 'no-cache' });
         if (response.ok) {
           const allData = await response.json();

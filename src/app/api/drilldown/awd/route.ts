@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const AWD_API = 'http://119.148.17.102:5000/awd/all.json';
+const AWD_API = `${process.env.API_BASE_URL}/awd/all.json`;
 
 export async function GET() {
   try {
