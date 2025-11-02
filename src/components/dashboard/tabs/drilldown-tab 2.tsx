@@ -613,8 +613,7 @@ export default function DrilldownTab() {
               <h3 className="text-lg font-semibold mb-2">Unable to Load Data</h3>
               <p className="text-sm mb-4">{error || 'No data available from the APIs.'}</p>
               <div className="text-xs text-gray-500 space-y-1">
-                <p>Dengue API: http://119.148.17.102:5000/dengue/all.json</p>
-                <p>AWD API: http://119.148.17.102:5000/awd/all.json</p>
+                <p>APIs: Dengue and AWD data endpoints</p>
                 <p className="mt-4">This may be due to:</p>
                 <ul className="list-disc list-inside text-left max-w-md mx-auto">
                   <li>CORS restrictions (the API may not allow browser requests)</li>

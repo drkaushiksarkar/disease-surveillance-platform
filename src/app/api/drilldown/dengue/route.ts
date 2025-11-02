@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const DENGUE_API = 'http://119.148.17.102:5000/dengue/all.json';
+const DENGUE_API = `${process.env.API_BASE_URL}/dengue/all.json`;
 
 export async function GET() {
   try {
