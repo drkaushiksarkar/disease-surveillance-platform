@@ -17,32 +17,52 @@ import InfoButton from './InfoButton';
 interface NationalCasesBaselineChartProps {
   data: WeeklyNationalData[];
   year: number;
+  disease?: string;
 }
 
-export default function NationalCasesBaselineChart({ data, year }: NationalCasesBaselineChartProps) {
+export default function NationalCasesBaselineChart({ data, year, disease = 'dengue' }: NationalCasesBaselineChartProps) {
+  // Determine if this is monthly data
+  const isMonthly = disease === 'malaria_pf' || disease === 'malaria_pv';
+  const periodLabel = isMonthly ? 'monthly' : 'weekly';
+
   // Determine the year range from the data
   const years = [...new Set(data.map(item => item.year))].sort();
   const yearRange = years.length > 1 ? `${years[0]}-${years[years.length - 1]}` : years[0]?.toString() || year.toString();
   const isMultiYear = years.length > 1;
 
-  const chartData = data.map(item => ({
-    weekLabel: isMultiYear ? `W${item.week}'${item.year.toString().slice(-2)}` : `W${item.week}`,
-    week: item.week,
-    year: item.year,
-    nationalCases: item.cases,
-    threshold: Math.round(item.baseline),
-  }));
+  // Month names for monthly data
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const chartData = data.map(item => {
+    let label = '';
+    if (isMonthly) {
+      // For monthly data, show month abbreviation
+      const monthIndex = item.week - 1; // week contains month number (1-12)
+      label = isMultiYear ? `${monthNames[monthIndex]}'${item.year.toString().slice(-2)}` : monthNames[monthIndex];
+    } else {
+      // For weekly data, show week number
+      label = isMultiYear ? `W${item.week}'${item.year.toString().slice(-2)}` : `W${item.week}`;
+    }
+
+    return {
+      weekLabel: label,
+      week: item.week,
+      year: item.year,
+      nationalCases: item.cases,
+      threshold: Math.round(item.baseline),
+    };
+  });
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-4">
-        <CardTitle className="text-xl font-semibold">National weekly cases vs baseline ({yearRange})</CardTitle>
+        <CardTitle className="text-xl font-semibold">National {periodLabel} cases vs baseline ({yearRange})</CardTitle>
         <InfoButton
           title="National Cases vs Baseline"
           content={
             <>
               <p className="mb-3">
-                Compares actual weekly cases to the historical baseline threshold.
+                Compares actual {periodLabel} cases to the historical baseline threshold.
               </p>
               <p>
                 When the blue line exceeds the dashed baseline, it signals an outbreak requiring immediate attention.
