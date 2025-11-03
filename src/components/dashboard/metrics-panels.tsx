@@ -170,9 +170,21 @@ export default function MetricsPanels({ weatherData, diseaseData, weatherError }
                   </div>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Monthly Cases
-              </p>
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {item.periodLabel ? (
+                  <p>{item.periodLabel}</p>
+                ) : (
+                  <p>Latest period</p>
+                )}
+                {item.comparisonLabel ? (
+                  <p>
+                    {item.comparisonLabel}
+                    {item.comparisonValue ? `: ${item.comparisonValue}` : ''}
+                  </p>
+                ) : (
+                  <p>Forecast vs actual</p>
+                )}
+              </div>
             </CardContent>
           </Card>
         );

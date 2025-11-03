@@ -47,6 +47,9 @@ export type DiseaseData = {
   value: string;
   is_high?: boolean;
   trend?: number;
+  periodLabel?: string;
+  comparisonLabel?: string;
+  comparisonValue?: string;
 };
 
 export type LiveWeatherData = {

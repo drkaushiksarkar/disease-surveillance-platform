@@ -8,10 +8,7 @@ import DistrictAccelerationCards from '../district-acceleration-cards';
 import { getLiveWeatherData } from '@/lib/weather';
 import type { WeatherData, DiseaseData, AccelerationAlertData } from '@/lib/types';
 import React from 'react';
-import {
-  locations,
-  getMonthlyCases,
-} from '@/lib/data';
+import { locations, getMonthlyCases } from '@/lib/data';
 
 async function fetchAndFormatWeatherData(): Promise<{data: WeatherData[], error: boolean}> {
   try {
@@ -82,8 +79,6 @@ export default function OverviewTab() {
   const [diseaseData, setDiseaseData] = React.useState<DiseaseData[]>([]);
   const [weatherError, setWeatherError] = React.useState(false);
   const [accelerationAlerts, setAccelerationAlerts] = React.useState<AccelerationAlertData[]>([]);
-  const [malariaPfData, setMalariaPfData] = React.useState({ totalCases: 0, trend: 0 });
-  const [malariaPvData, setMalariaPvData] = React.useState({ totalCases: 0, trend: 0 });
 
   React.useEffect(() => {
     async function loadWeather() {
@@ -93,67 +88,39 @@ export default function OverviewTab() {
     }
     loadWeather();
 
-    // Get district name from district ID (only if a district is explicitly selected)
-    let districtName: string | undefined = undefined;
-    if (districtId) {
-      const selectedDistrict = locations.find(l => l.id === districtId && l.level === 'district');
-      districtName = selectedDistrict ? selectedDistrict.name : undefined;
-    }
+    async function loadMonthlyCases() {
+      const fallback = () => {
+        const base = getMonthlyCases();
+        return base.map(item => ({
+          ...item,
+          periodLabel: item.periodLabel ?? 'Historical estimate',
+          comparisonLabel: item.comparisonLabel ?? 'Previous period',
+          comparisonValue: item.comparisonValue ?? '—',
+        }));
+      };
 
-    // Fetch malaria data from PostgreSQL API (both PF and PV)
-    async function loadMalariaData() {
       try {
-        const params = new URLSearchParams();
-        if (districtName) {
-          params.set('district', districtName);
-        }
-        if (dateFrom) {
-          params.set('from', dateFrom);
-        }
-        if (dateTo) {
-          params.set('to', dateTo);
-        }
+        const response = await fetch('/api/monthly-cases', { cache: 'no-cache' });
 
-        // Fetch PF data
-        const pfParams = new URLSearchParams(params);
-        pfParams.set('type', 'pf');
-        const pfResponse = await fetch(`/api/malaria-cases?${pfParams.toString()}`);
-        if (pfResponse.ok) {
-          const pfData = await pfResponse.json();
-          setMalariaPfData({ totalCases: pfData.totalCases, trend: pfData.trend });
+        if (response.ok) {
+          const data = (await response.json()) as { cards?: DiseaseData[] };
+          if (data.cards && data.cards.length > 0) {
+            setDiseaseData(data.cards);
+            return;
+          }
+          console.warn('Monthly cases API returned no cards, using fallback data');
+          setDiseaseData(fallback());
         } else {
-          console.error('Failed to fetch malaria PF data');
-          setMalariaPfData({ totalCases: 0, trend: 0 });
-        }
-
-        // Fetch PV data
-        const pvParams = new URLSearchParams(params);
-        pvParams.set('type', 'pv');
-        const pvResponse = await fetch(`/api/malaria-cases?${pvParams.toString()}`);
-        if (pvResponse.ok) {
-          const pvData = await pvResponse.json();
-          setMalariaPvData({ totalCases: pvData.totalCases, trend: pvData.trend });
-        } else {
-          console.error('Failed to fetch malaria PV data');
-          setMalariaPvData({ totalCases: 0, trend: 0 });
+          console.error('Failed to fetch monthly cases');
+          setDiseaseData(fallback());
         }
       } catch (error) {
-        console.error('Error loading malaria data:', error);
-        setMalariaPfData({ totalCases: 0, trend: 0 });
-        setMalariaPvData({ totalCases: 0, trend: 0 });
+        console.error('Error loading monthly cases:', error);
+        setDiseaseData(fallback());
       }
     }
 
-    // Get monthly cases with filters applied (dengue and diarrhoea only)
-    // If no district selected, show national totals (no district filter)
-    const monthlyCases = getMonthlyCases(
-      districtName,
-      dateFrom || undefined,
-      dateTo || undefined
-    );
-    setDiseaseData(monthlyCases);
-
-    loadMalariaData();
+    loadMonthlyCases();
 
     // Fetch acceleration alerts data from API
     async function loadAccelerationAlerts() {
@@ -181,44 +148,13 @@ export default function OverviewTab() {
     return selectedDistrict ? selectedDistrict.name : undefined;
   }, [districtId]);
 
-  // Merge malaria data with other disease data
-  const allDiseaseData = React.useMemo(() => {
-    // Remove old "Malaria" entry if it exists
-    const filteredData = diseaseData.filter(d => d.label !== 'Malaria');
-
-    // Calculate combined malaria data
-    const totalMalariaCases = malariaPfData.totalCases + malariaPvData.totalCases;
-    const pvPercentage = totalMalariaCases > 0
-      ? Math.round((malariaPvData.totalCases / totalMalariaCases) * 100)
-      : 0;
-
-    // Calculate weighted average trend
-    const avgTrend = totalMalariaCases > 0
-      ? Math.round(
-          (malariaPfData.trend * malariaPfData.totalCases +
-           malariaPvData.trend * malariaPvData.totalCases) / totalMalariaCases
-        )
-      : 0;
-
-    // Add combined Malaria card with PV percentage
-    const malariaCard: DiseaseData = {
-      label: `Malaria (${pvPercentage}% PV)`,
-      value: totalMalariaCases.toLocaleString(),
-      trend: avgTrend,
-      is_high: totalMalariaCases > 4000
-    };
-
-    // Insert malaria card at the beginning (before Dengue and Diarrhoea)
-    return [malariaCard, ...filteredData];
-  }, [diseaseData, malariaPfData, malariaPvData]);
-
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
       <FilterBar />
 
       {/* 6 Metric Cards */}
-      <MetricsPanels weatherData={weatherData} diseaseData={allDiseaseData} weatherError={weatherError} />
+      <MetricsPanels weatherData={weatherData} diseaseData={diseaseData} weatherError={weatherError} />
 
       {/* Prediction Chart and District Acceleration Cards */}
       <div className="grid gap-6 lg:grid-cols-2">
