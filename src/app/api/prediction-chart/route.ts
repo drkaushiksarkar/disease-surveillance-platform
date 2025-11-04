@@ -77,22 +77,29 @@ export async function GET(request: Request) {
           `SELECT
             year,
             month,
-            SUM(COALESCE(${diseaseColumn}, 0)) as cases
+            SUM(CASE WHEN ${diseaseColumn} IS NOT NULL AND ${diseaseColumn} <> 'NaN'::float8 THEN ${diseaseColumn} ELSE 0 END) as cases
            FROM malaria_weather
            WHERE LOWER(dis_name) = LOWER($1)
              AND year IS NOT NULL
              AND month IS NOT NULL
+             AND ${diseaseColumn} IS NOT NULL
+             AND ${diseaseColumn} <> 'NaN'::float8
            GROUP BY year, month
            ORDER BY year, month`,
           [district]
         );
         console.log(`Fetched ${result.rows.length} rows of ${disease} historical data`);
 
-        // Transform to date format
-        historicalData = result.rows.map((row: any) => ({
-          report_date: `${row.year}-${String(row.month).padStart(2, '0')}-01`,
-          cases: parseFloat(row.cases) || 0
-        }));
+        // Transform to date format and filter out invalid values
+        historicalData = result.rows
+          .map((row: any) => {
+            const cases = parseFloat(row.cases);
+            return {
+              report_date: `${row.year}-${String(row.month).padStart(2, '0')}-01`,
+              cases: isNaN(cases) ? 0 : cases
+            };
+          })
+          .filter((row: any) => row.cases > 0);
       } else if (disease === 'dengue') {
         // Dengue data comes from dengue_weather table in database
         console.log(`Querying dengue_weather for district: ${district}`);
