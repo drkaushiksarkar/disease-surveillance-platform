@@ -129,25 +129,26 @@ export async function GET(request: Request) {
         });
       } else if (disease === 'diarrhoea') {
         // Diarrhoea (AWD) data comes from awd_weather table in database
-        console.log(`Querying awd_weather for district: ${district}`);
+        // Aggregate at weekly level to reduce fluctuation
+        console.log(`Querying awd_weather for district: ${district} (weekly aggregation)`);
         const result = await weatherPool.query(
           `SELECT
-            date as report_date,
+            date_trunc('week', date)::date as week_start,
             SUM(COALESCE(daily_cases, 0)) as cases
            FROM awd_weather
            WHERE LOWER(district) = LOWER($1)
              AND date IS NOT NULL
-           GROUP BY date
-           ORDER BY date`,
+           GROUP BY week_start
+           ORDER BY week_start`,
           [district]
         );
-        console.log(`Fetched ${result.rows.length} rows of diarrhoea historical data`);
+        console.log(`Fetched ${result.rows.length} rows of diarrhoea weekly historical data`);
 
         // Transform to standard format
         historicalData = result.rows.map((row: any) => ({
-          report_date: row.report_date instanceof Date
-            ? row.report_date.toISOString().split('T')[0]
-            : row.report_date,
+          report_date: row.week_start instanceof Date
+            ? row.week_start.toISOString().split('T')[0]
+            : row.week_start,
           cases: parseFloat(row.cases) || 0
         }));
       }
