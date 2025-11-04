@@ -71,7 +71,6 @@ function buildTableCandidates(baseTable: string): string[] {
     candidates.add(`${schemaPart}.${bareTable}`);
   }
   candidates.add(defaultName);
-  candidates.add(`dashboard.${bareTable}`);
   candidates.add(`public.${bareTable}`);
 
   return Array.from(candidates);
@@ -125,9 +124,9 @@ async function fetchWeeklyTotals(baseTable: string): Promise<DiseaseData | null>
     SELECT
       ${latest.year} AS year,
       ${latest.epi_week} AS epi_week,
-      COALESCE(SUM(this_week_actual), 0) AS actual_total,
-      COALESCE(SUM(next_week_forecast), 0) AS forecast_total,
-      COUNT(DISTINCT CASE WHEN this_week_actual IS NOT NULL THEN district END) AS valid_districts
+      COALESCE(SUM(actual_cases), 0) AS actual_total,
+      COALESCE(SUM(predicted_cases), 0) AS forecast_total,
+      COUNT(DISTINCT CASE WHEN actual_cases IS NOT NULL THEN district END) AS valid_districts
     FROM ${tbl}
     WHERE year = ${latest.year} AND epi_week = ${latest.epi_week}
   `;
@@ -200,9 +199,9 @@ async function fetchMonthlyTotalsForTables(
     try {
       const result = await query<MonthlyTotalsRow>(`
         SELECT
-          COALESCE(SUM(this_week_actual), 0) AS actual_total,
-          COALESCE(SUM(next_week_forecast), 0) AS forecast_total,
-          ARRAY_REMOVE(ARRAY_AGG(DISTINCT CASE WHEN this_week_actual IS NOT NULL THEN upazila END), NULL) AS valid_units
+          COALESCE(SUM(actual_cases), 0) AS actual_total,
+          COALESCE(SUM(predicted_cases), 0) AS forecast_total,
+          ARRAY_REMOVE(ARRAY_AGG(DISTINCT CASE WHEN actual_cases IS NOT NULL THEN upazila END), NULL) AS valid_units
         FROM ${tbl}
         WHERE year = ${target.year} AND month = ${target.month}
       `);
@@ -227,8 +226,8 @@ async function fetchMonthlyTotalsForTables(
 }
 
 async function fetchMalariaTotals(): Promise<DiseaseData | null> {
-  const pfTables = buildTableCandidates('malaria_pf_acceleration_alerts');
-  const pvTables = buildTableCandidates('malaria_pv_acceleration_alerts');
+  const pfTables = buildTableCandidates('malaria_pf_predictions');
+  const pvTables = buildTableCandidates('malaria_pv_predictions');
 
   const latestPf = await fetchLatestYearMonth(pfTables);
   const latestPv = await fetchLatestYearMonth(pvTables);
@@ -277,8 +276,8 @@ export async function GET() {
   try {
     const [malaria, dengue, diarrhoea] = await Promise.all([
       fetchMalariaTotals(),
-      fetchWeeklyTotals('dengue_acceleration_alerts'),
-      fetchWeeklyTotals('diarrhoea_acceleration_alerts'),
+      fetchWeeklyTotals('dengue_predictions'),
+      fetchWeeklyTotals('diarrhoea_predictions'),
     ]);
 
     const cards = [malaria, dengue, diarrhoea].filter(

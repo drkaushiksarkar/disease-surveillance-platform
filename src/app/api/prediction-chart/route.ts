@@ -48,8 +48,8 @@ export async function GET(request: Request) {
     };
 
     const predictionsTableMap: { [key: string]: string } = {
-      dengue: 'dengue_acceleration_alerts',
-      diarrhoea: 'diarrhoea_acceleration_alerts',
+      dengue: 'dengue_predictions',
+      diarrhoea: 'diarrhoea_predictions',
       malaria_pf: 'malaria_pf_predictions',
       malaria_pv: 'malaria_pv_predictions',
     };
@@ -77,112 +77,80 @@ export async function GET(request: Request) {
           `SELECT
             year,
             month,
-            SUM(COALESCE(${diseaseColumn}, 0)) as cases
+            SUM(CASE WHEN ${diseaseColumn} IS NOT NULL AND ${diseaseColumn} <> 'NaN'::float8 THEN ${diseaseColumn} ELSE 0 END) as cases
            FROM malaria_weather
            WHERE LOWER(dis_name) = LOWER($1)
              AND year IS NOT NULL
              AND month IS NOT NULL
+             AND ${diseaseColumn} IS NOT NULL
+             AND ${diseaseColumn} <> 'NaN'::float8
            GROUP BY year, month
            ORDER BY year, month`,
           [district]
         );
         console.log(`Fetched ${result.rows.length} rows of ${disease} historical data`);
 
-        // Transform to date format
+        // Transform to date format and filter out invalid values
+        historicalData = result.rows
+          .map((row: any) => {
+            const cases = parseFloat(row.cases);
+            return {
+              report_date: `${row.year}-${String(row.month).padStart(2, '0')}-01`,
+              cases: isNaN(cases) ? 0 : cases
+            };
+          })
+          .filter((row: any) => row.cases > 0);
+      } else if (disease === 'dengue') {
+        // Dengue data comes from dengue_weather table in database
+        console.log(`Querying dengue_weather for district: ${district}`);
+        const result = await weatherPool.query(
+          `SELECT
+            year,
+            epi_week,
+            SUM(COALESCE(weekly_hospitalised_cases, 0)) as cases
+           FROM dengue_weather
+           WHERE LOWER(district) = LOWER($1)
+             AND year IS NOT NULL
+             AND epi_week IS NOT NULL
+           GROUP BY year, epi_week
+           ORDER BY year, epi_week`,
+          [district]
+        );
+        console.log(`Fetched ${result.rows.length} rows of dengue historical data`);
+
+        // Transform to date format - approximate date from year and epi_week
+        historicalData = result.rows.map((row: any) => {
+          // Approximate date: year start + (epi_week * 7) days
+          const date = new Date(row.year, 0, 1 + (row.epi_week * 7));
+          return {
+            report_date: date.toISOString().split('T')[0],
+            cases: parseFloat(row.cases) || 0
+          };
+        });
+      } else if (disease === 'diarrhoea') {
+        // Diarrhoea (AWD) data comes from awd_weather table in database
+        // Aggregate at weekly level to reduce fluctuation
+        console.log(`Querying awd_weather for district: ${district} (weekly aggregation)`);
+        const result = await weatherPool.query(
+          `SELECT
+            date_trunc('week', date)::date as week_start,
+            SUM(COALESCE(daily_cases, 0)) as cases
+           FROM awd_weather
+           WHERE LOWER(district) = LOWER($1)
+             AND date IS NOT NULL
+           GROUP BY week_start
+           ORDER BY week_start`,
+          [district]
+        );
+        console.log(`Fetched ${result.rows.length} rows of diarrhoea weekly historical data`);
+
+        // Transform to standard format
         historicalData = result.rows.map((row: any) => ({
-          report_date: `${row.year}-${String(row.month).padStart(2, '0')}-01`,
+          report_date: row.week_start instanceof Date
+            ? row.week_start.toISOString().split('T')[0]
+            : row.week_start,
           cases: parseFloat(row.cases) || 0
         }));
-      } else if (disease === 'dengue') {
-        // Dengue data comes from external JSON API, not database
-        console.log(`Fetching dengue data from drilldown API for district: ${district}`);
-        const apiUrl = `${process.env.API_BASE_URL}/dengue/all.json`;
-        const response = await fetch(apiUrl, { cache: 'no-cache' });
-        if (response.ok) {
-          const allData = await response.json();
-          // Filter by district and aggregate by year/week
-          const filteredData = allData.filter((row: any) =>
-            row.district && row.district.toLowerCase() === district.toLowerCase()
-          );
-
-          // Group by year and epi_week, summing weekly_hospitalised_cases
-          const grouped = new Map<string, number>();
-          filteredData.forEach((row: any) => {
-            const key = `${row.year}-${String(row.epi_week).padStart(2, '0')}`;
-            const cases = parseFloat(row.weekly_hospitalised_cases) || 0;
-            grouped.set(key, (grouped.get(key) || 0) + cases);
-          });
-
-          // Convert to array and sort
-          historicalData = Array.from(grouped.entries()).map(([key, cases]) => {
-            const [year, week] = key.split('-');
-            // Approximate date: year start + (week * 7) days
-            const date = new Date(parseInt(year), 0, 1 + (parseInt(week) * 7));
-            return {
-              report_date: date.toISOString().split('T')[0],
-              cases
-            };
-          }).sort((a, b) => a.report_date.localeCompare(b.report_date));
-
-          console.log(`Fetched ${historicalData.length} historical data points for dengue in ${district}`);
-        } else {
-          console.error(`Failed to fetch dengue data from API: ${response.status}`);
-        }
-      } else if (disease === 'diarrhoea') {
-        // Diarrhoea (AWD) data comes from external JSON API, not database
-        // Note: AWD data has 'date' and 'daily_cases' fields (different structure from dengue)
-        console.log(`Fetching diarrhoea data from drilldown API for district: ${district}`);
-        const apiUrl = `${process.env.API_BASE_URL}/awd/all.json`;
-        const response = await fetch(apiUrl, { cache: 'no-cache' });
-        if (response.ok) {
-          const allData = await response.json();
-          // Filter by district
-          const filteredData = allData.filter((row: any) =>
-            row.district && row.district.toLowerCase() === district.toLowerCase()
-          );
-
-          // Group by week (aggregate daily data into weekly)
-          const grouped = new Map<string, number>();
-          filteredData.forEach((row: any) => {
-            if (row.date) {
-              const date = new Date(row.date);
-              // Skip invalid dates
-              if (isNaN(date.getTime())) {
-                return;
-              }
-              // Get year and week number
-              const year = date.getFullYear();
-              const weekNum = Math.ceil((date.getTime() - new Date(year, 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000));
-              const key = `${year}-${String(weekNum).padStart(2, '0')}`;
-              const cases = parseFloat(row.daily_cases) || 0;
-              grouped.set(key, (grouped.get(key) || 0) + cases);
-            }
-          });
-
-          // Convert to array and sort
-          historicalData = Array.from(grouped.entries())
-            .map(([key, cases]) => {
-              const [year, week] = key.split('-');
-              // Approximate date: year start + (week * 7) days
-              const date = new Date(parseInt(year), 0, 1 + (parseInt(week) * 7));
-
-              // Validate date before using it
-              if (isNaN(date.getTime())) {
-                return null;
-              }
-
-              return {
-                report_date: date.toISOString().split('T')[0],
-                cases
-              };
-            })
-            .filter((item): item is { report_date: string; cases: number } => item !== null) // Remove invalid dates
-            .sort((a, b) => a.report_date.localeCompare(b.report_date));
-
-          console.log(`Fetched ${historicalData.length} historical data points for diarrhoea in ${district}`);
-        } else {
-          console.error(`Failed to fetch diarrhoea data from API: ${response.status}`);
-        }
       }
     } catch (error) {
       console.error(`Error fetching historical data from ${weatherTable}:`, error);
@@ -249,43 +217,59 @@ export async function GET(request: Request) {
           console.error(`${disease} predictions query failed:`, (innerError as Error).message);
         }
       } else {
-        // Dengue and diarrhoea predictions from acceleration_alerts tables
+        // Dengue and diarrhoea predictions from their respective predictions tables
+        console.log(`Querying ${predictionsTable} for district: ${district}`);
         try {
           const result = await query<{
-            year: number;
-            epi_week: number;
-            this_week_predicted: number;
+            report_date: Date | string;
+            predicted_cases: number | string;
+            uncertainty_low: number | string | null;
+            uncertainty_high: number | string | null;
           }>(
             `SELECT
-              year,
-              epi_week,
-              this_week_predicted
+              report_date,
+              predicted_cases,
+              uncertainty_low,
+              uncertainty_high
              FROM ${table(predictionsTable)}
              WHERE LOWER(district) = LOWER($1)
-               AND year IS NOT NULL
-               AND epi_week IS NOT NULL
-               AND this_week_predicted IS NOT NULL
-             ORDER BY year DESC, epi_week DESC
+               AND report_date IS NOT NULL
+               AND predicted_cases IS NOT NULL
+             ORDER BY report_date DESC
              LIMIT 1`,
             [district]
           );
 
           if (result.rows.length > 0) {
             const row = result.rows[0];
-            // Calculate approximate date from year and epi_week
-            const date = new Date(row.year, 0, 1 + (row.epi_week * 7));
+            const reportDate = row.report_date instanceof Date
+              ? row.report_date.toISOString().split('T')[0]
+              : String(row.report_date).split('T')[0];
+
+            const predictedCases = typeof row.predicted_cases === 'number'
+              ? row.predicted_cases
+              : parseFloat(String(row.predicted_cases));
+
+            const uncertaintyLow = row.uncertainty_low
+              ? (typeof row.uncertainty_low === 'number' ? row.uncertainty_low : parseFloat(String(row.uncertainty_low)))
+              : predictedCases * 0.8;
+
+            const uncertaintyHigh = row.uncertainty_high
+              ? (typeof row.uncertainty_high === 'number' ? row.uncertainty_high : parseFloat(String(row.uncertainty_high)))
+              : predictedCases * 1.2;
+
             predictionData = {
-              report_date: date.toISOString().split('T')[0],
-              predicted: row.this_week_predicted,
-              uncertainity_low: row.this_week_predicted * 0.8,
-              uncertainity_high: row.this_week_predicted * 1.2,
+              report_date: reportDate,
+              predicted: predictedCases,
+              uncertainity_low: uncertaintyLow,
+              uncertainity_high: uncertaintyHigh,
             };
             console.log(`Found ${disease} prediction for ${district}:`, predictionData);
           } else {
             console.log(`No prediction data found in ${predictionsTable} for ${district}`);
           }
         } catch (innerError) {
-          console.error(`${disease} acceleration alerts query failed:`, (innerError as Error).message);
+          console.error(`${disease} predictions query failed:`, (innerError as Error).message);
         }
       }
 

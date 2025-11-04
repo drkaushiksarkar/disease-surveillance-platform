@@ -4,11 +4,11 @@ import { Pool } from 'pg';
 export const dynamic = 'force-dynamic';
 
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT || '5432'),
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+  host: process.env.PG_HOST || process.env.DB_HOST,
+  port: parseInt(process.env.PG_PORT || process.env.DB_PORT || '5432'),
+  user: process.env.PG_USER || process.env.DB_USER,
+  password: process.env.PG_PASS || process.env.DB_PASSWORD,
+  database: process.env.PG_DB || process.env.DB_NAME,
 });
 
 interface DistrictAlertData {

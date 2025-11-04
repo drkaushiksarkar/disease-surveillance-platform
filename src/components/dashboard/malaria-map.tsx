@@ -76,11 +76,28 @@ export default function MalariaMap() {
         const colors = ['#ffffcc', '#ffeda0', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#bd0026'];
 
         const stops: [number, string][] = [];
+        const usedValues = new Set<number>();
+
         for (let i = 0; i < colors.length; i++) {
             const t = i / (colors.length - 1);
             // Use exponential distribution for better visual separation
             const value = minVal + (maxVal - minVal) * Math.pow(t, 1.5);
-            stops.push([Math.round(value), colors[i]]);
+            const roundedValue = Math.round(value);
+
+            // Only add if this value hasn't been used and maintains ascending order
+            if (!usedValues.has(roundedValue) &&
+                (stops.length === 0 || roundedValue > stops[stops.length - 1][0])) {
+                stops.push([roundedValue, colors[i]]);
+                usedValues.add(roundedValue);
+            }
+        }
+
+        // Ensure we have at least 2 stops for interpolation
+        if (stops.length < 2) {
+            return [
+                [minVal, '#ffffcc'],
+                [maxVal, '#e31a1c']
+            ];
         }
 
         return stops;

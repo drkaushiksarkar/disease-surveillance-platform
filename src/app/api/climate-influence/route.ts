@@ -148,6 +148,7 @@ export async function GET(request: Request) {
     const tableMap: { [key: string]: string } = {
       dengue: 'dengue_climate_influence',
       diarrhoea: 'diarrhoea_climate_influence',
+      awd: 'diarrhoea_climate_influence', // AWD and diarrhoea use the same table
       malaria_pf: 'malaria_pf_climate_influence',
       malaria_pv: 'malaria_pv_climate_influence',
     };
