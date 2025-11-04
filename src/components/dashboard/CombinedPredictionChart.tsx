@@ -245,7 +245,27 @@ export default function CombinedPredictionChart({ disease, district, dateFrom, d
               labelStyle={{
                 color: 'hsl(var(--foreground))',
               }}
-              formatter={(value: any, name: string) => {
+              formatter={(value: any, name: string, props: any) => {
+                const payload = props.payload;
+
+                // If this point has prediction data, show detailed uncertainty info
+                if (payload && payload.predicted) {
+                  if (name === 'Cases') {
+                    return [
+                      <div key="predicted-info" className="space-y-1">
+                        <div className="font-semibold">Predicted Cases: {Math.round(payload.predicted)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Uncertainty Range: {Math.round(payload.uncertainity_low)} - {Math.round(payload.uncertainity_high)}
+                        </div>
+                      </div>,
+                      ''
+                    ];
+                  }
+                  // Hide the "Predicted" entry in tooltip since we're showing it in Cases
+                  if (name === 'Predicted') return [null, ''];
+                }
+
+                // For historical data points
                 if (name === 'Cases') return [Math.round(value), 'Cases'];
                 if (name === 'Predicted') return [Math.round(value), 'Predicted'];
                 return [Math.round(value), name];

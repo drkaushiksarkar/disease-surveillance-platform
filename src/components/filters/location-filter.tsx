@@ -13,7 +13,11 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 
-export function LocationFilter() {
+interface LocationFilterProps {
+  hideUpazila?: boolean;
+}
+
+export function LocationFilter({ hideUpazila = false }: LocationFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -106,7 +110,7 @@ export function LocationFilter() {
             </SelectContent>
           </Select>
         )}
-        {upazilas.length > 0 && selectedDistrict && (
+        {!hideUpazila && upazilas.length > 0 && selectedDistrict && (
           <Select
             value={selectedUpazila ?? ''}
             onValueChange={(value) => handleFilterChange('upazila', value)}

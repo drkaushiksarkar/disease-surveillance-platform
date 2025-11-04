@@ -151,7 +151,7 @@ export default function OverviewTab() {
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
-      <FilterBar />
+      <FilterBar hideUpazila={true} />
 
       {/* 6 Metric Cards */}
       <MetricsPanels weatherData={weatherData} diseaseData={diseaseData} weatherError={weatherError} />

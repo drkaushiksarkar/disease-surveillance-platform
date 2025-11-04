@@ -1,26 +1,41 @@
 import { NextResponse } from 'next/server';
+import { Pool } from 'pg';
 
-const AWD_API = `${process.env.API_BASE_URL}/awd/all.json`;
+// Create a connection pool for database access
+const pool = new Pool({
+  host: process.env.PG_HOST,
+  port: parseInt(process.env.PG_PORT || '5432'),
+  database: process.env.PG_DB,
+  user: process.env.PG_USER,
+  password: process.env.PG_PASS,
+});
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const response = await fetch(AWD_API, {
-      cache: 'no-cache',
-    });
+    console.log('Fetching AWD (diarrhoea) data from awd_weather table');
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `API returned ${response.status}` },
-        { status: response.status }
-      );
-    }
+    const result = await pool.query(`
+      SELECT
+        district,
+        division,
+        date,
+        daily_cases,
+        temperature,
+        humidity,
+        rainfall
+      FROM awd_weather
+      WHERE date IS NOT NULL
+      ORDER BY date, district
+    `);
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    console.log(`Fetched ${result.rows.length} rows of AWD data`);
+    return NextResponse.json(result.rows);
   } catch (error) {
-    console.error('Error proxying AWD request:', error);
+    console.error('Error fetching AWD data from database:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch AWD data' },
+      { error: 'Failed to fetch AWD data', details: (error as Error).message },
       { status: 500 }
     );
   }

@@ -1,26 +1,43 @@
 import { NextResponse } from 'next/server';
+import { Pool } from 'pg';
 
-const DENGUE_API = `${process.env.API_BASE_URL}/dengue/all.json`;
+// Create a connection pool for database access
+const pool = new Pool({
+  host: process.env.PG_HOST,
+  port: parseInt(process.env.PG_PORT || '5432'),
+  database: process.env.PG_DB,
+  user: process.env.PG_USER,
+  password: process.env.PG_PASS,
+});
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const response = await fetch(DENGUE_API, {
-      cache: 'no-cache',
-    });
+    console.log('Fetching dengue data from dengue_weather table');
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `API returned ${response.status}` },
-        { status: response.status }
-      );
-    }
+    const result = await pool.query(`
+      SELECT
+        district,
+        division,
+        year,
+        epi_week,
+        weekly_hospitalised_cases,
+        total_rainfall,
+        avg_humidity,
+        avg_temperature
+      FROM dengue_weather
+      WHERE year IS NOT NULL
+        AND epi_week IS NOT NULL
+      ORDER BY year, epi_week, district
+    `);
 
-    const data = await response.json();
-    return NextResponse.json(data);
+    console.log(`Fetched ${result.rows.length} rows of dengue data`);
+    return NextResponse.json(result.rows);
   } catch (error) {
-    console.error('Error proxying dengue request:', error);
+    console.error('Error fetching dengue data from database:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch dengue data' },
+      { error: 'Failed to fetch dengue data', details: (error as Error).message },
       { status: 500 }
     );
   }
