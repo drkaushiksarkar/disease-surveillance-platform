@@ -164,16 +164,17 @@ export default function DistrictSatelliteMap({
 
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
-    
+
     if (legendContainerRef.current) {
         map.addControl(new maplibregl.NavigationControl({}), 'top-right');
     }
 
     map.on('load', async () => {
-      // Ensure glyphs are defined before adding any text layers (MapLibre validation requirement)
-      const styleRef = (map as any)?.style?.stylesheet;
-      if (styleRef && !styleRef.glyphs) {
-        styleRef.glyphs = glyphUrl;
+      // Wait for style to be fully loaded before adding text layers
+      if (!map.isStyleLoaded()) {
+        await new Promise<void>((resolve) => {
+          map.once('styledata', () => resolve());
+        });
       }
 
       // Basemaps
