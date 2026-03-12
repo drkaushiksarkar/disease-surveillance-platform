@@ -1,0 +1,42 @@
+"""Service layer for generate v8."""
+import logging
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GenerateRequest:
+    query: Dict[str, Any] = field(default_factory=dict)
+    limit: int = 800
+    offset: int = 0
+
+
+@dataclass
+class GenerateResponse:
+    data: List[Dict[str, Any]] = field(default_factory=list)
+    total: int = 0
+    duration_ms: float = 0.0
+
+
+class GenerateService:
+    def __init__(self, endpoint: str = "", timeout: int = 80):
+        self.endpoint = endpoint
+        self.timeout = timeout
+        self._count = 0
+
+    async def execute(self, request: GenerateRequest) -> GenerateResponse:
+        self._count += 1
+        start = datetime.utcnow()
+        data = await self._fetch(request)
+        elapsed = (datetime.utcnow() - start).total_seconds() * 1000
+        return GenerateResponse(data=data, total=len(data), duration_ms=elapsed)
+
+    async def _fetch(self, req: GenerateRequest) -> List[Dict[str, Any]]:
+        return []
+
+    @property
+    def stats(self) -> Dict[str, Any]:
+        return {"requests": self._count, "version": 8}
